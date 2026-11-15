@@ -29,7 +29,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
   padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; white-space: nowrap; }
-#vehicle-picker select { max-width: 46vw; }
 
 main { max-width: 760px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; min-width: 0; }
@@ -114,3 +113,22 @@ dialog form { padding: 18px; display: grid; gap: 14px; }
 .error { color: var(--bad); font-weight: 600; font-size: .9rem; }
 .form-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .form-actions .danger { margin-right: auto; }
+
+/* Ficha técnica */
+.card h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 4px; }
+.specs th, .specs td { white-space: normal; vertical-align: top; }
+.specs th { width: 38%; text-align: left; font-size: .9rem; }
+.specs td { text-align: left; font-variant-numeric: normal; }
+.specs tr:first-child > * { border-top: 0; }
+.ref { color: var(--soon); font-weight: 700; }
+
+/* Foto del motor con puntos numerados */
+.bay { position: relative; border-radius: 10px; overflow: hidden; line-height: 0; }
+.bay img { width: 100%; height: auto; display: block; }
+.pin {
+  position: absolute; transform: translate(-50%, -50%); width: 24px; height: 24px; border-radius: 50%;
+  background: #dc2626; color: #fff; font: 700 13px/21px system-ui, sans-serif; text-align: center;
+  border: 2px solid #fff; box-shadow: 0 1px 5px rgb(0 0 0 / .5);
+}
+.pin.static { position: static; transform: none; flex-shrink: 0; align-self: flex-start; box-shadow: none; }
+.guide > li { flex-wrap: nowrap; align-items: flex-start; }

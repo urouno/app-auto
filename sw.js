@@ -1,6 +1,6 @@
 // Red primero; si no hay conexión se sirve la copia en caché (uso sin conexión).
-const CACHE = 'auto-mantenimiento-v1';
-const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'logic.js', 'icon.svg', 'manifest.webmanifest'];
+const CACHE = 'auto-mantenimiento-v2';
+const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'logic.js', 'ignis.js', 'motor.jpg', 'icon.svg', 'manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

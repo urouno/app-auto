@@ -1,8 +1,10 @@
 import * as L from './logic.js';
+import * as IGNIS from './ignis.js';
 
 // ───────────────────────── Estado y persistencia ─────────────────────────
 const KEY = 'auto-mantenimiento:v1';
-const emptyState = () => ({ version: 1, activeVehicleId: null, vehicles: [] });
+const VERSION = 2;
+const emptyState = () => ({ version: VERSION, vehicles: [] });
 
 function normalize(data) {
   if (!data || !Array.isArray(data.vehicles)) return null;
@@ -11,7 +13,21 @@ function normalize(data) {
     v.name = String(v.name || 'Vehículo');
     for (const k of ['tires', 'services', 'consumables']) if (!Array.isArray(v[k])) v[k] = [];
   }
-  return { version: 1, activeVehicleId: data.activeVehicleId ?? null, vehicles: data.vehicles };
+  // Datos de la versión genérica (v1): se ajustan una vez a los valores del Ignis.
+  if ((data.version || 1) < VERSION && data.vehicles[0]) applyIgnisPreset(data.vehicles[0]);
+  return { version: VERSION, vehicles: data.vehicles };
+}
+
+/** Pone presiones e intervalos del Ignis conservando las fechas y km de los últimos cambios. */
+function applyIgnisPreset(v) {
+  const { name, ...fixed } = IGNIS.VEHICLE;
+  Object.assign(v, fixed);
+  v.name ||= name;
+  for (const [cname, intervalKm, intervalMonths, notes] of IGNIS.CONSUMABLES) {
+    const c = v.consumables.find((x) => x.name === cname);
+    if (c) Object.assign(c, { intervalKm, intervalMonths, notes: c.notes || notes });
+    else v.consumables.push({ id: uid(), name: cname, intervalKm, intervalMonths, lastDate: '', lastKm: null, notes });
+  }
 }
 
 function load() {
@@ -37,27 +53,9 @@ function uid() {
 }
 
 let state = load();
-const vehicle = () => state.vehicles.find((v) => v.id === state.activeVehicleId) || state.vehicles[0] || null;
+const vehicle = () => state.vehicles[0] || null;
 
-// Consumibles sugeridos al dar de alta un vehículo (intervalos típicos; ajustar según el manual).
-const DEFAULT_CONSUMABLES = [
-  ['Aceite de motor', 10000, 12],
-  ['Filtro de aceite', 10000, 12],
-  ['Filtro de aire', 20000, 24],
-  ['Filtro de cabina', 15000, 12],
-  ['Balatas / pastillas de freno', 40000, null],
-  ['Líquido de frenos', null, 24],
-  ['Anticongelante / refrigerante', 60000, 48],
-  ['Bujías', 60000, null],
-  ['Batería', null, 48],
-  ['Llantas', 60000, 60],
-  ['Plumas limpiaparabrisas', null, 12],
-  ['Rotación de llantas', 10000, null],
-];
-const SERVICE_TYPES = [
-  'Cambio de aceite y filtro', 'Afinación', 'Servicio mayor', 'Alineación y balanceo', 'Rotación de llantas',
-  'Frenos', 'Suspensión', 'Batería', 'Verificación vehicular', 'Lavado y detallado',
-];
+const SERVICE_TYPES = IGNIS.SERVICE_TYPES;
 
 // ───────────────────────── Utilidades de presentación ─────────────────────────
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -163,31 +161,22 @@ const bumpOdometer = (v, value) => {
 };
 
 function vehicleForm(v) {
+  const d = IGNIS.VEHICLE;
   openForm({
-    title: v ? 'Editar vehículo' : 'Nuevo vehículo',
+    title: v ? 'Mis datos' : 'Configurar mi Ignis',
+    intro: 'La presión recomendada es de referencia: confírmala en la etiqueta del marco de la puerta del conductor.',
     fields: [
-      { name: 'name', label: 'Nombre o alias', required: true, value: v?.name, full: true },
-      { name: 'make', label: 'Marca', value: v?.make },
-      { name: 'model', label: 'Modelo', value: v?.model },
-      { name: 'year', label: 'Año', type: 'number', min: 1900, value: v?.year },
+      { name: 'name', label: 'Alias', required: true, value: v?.name ?? d.name },
       { name: 'plate', label: 'Placas', value: v?.plate },
       { name: 'odometer', label: 'Kilometraje actual (km)', type: 'number', required: true, value: v?.odometer, full: true },
-      { name: 'pressureFront', label: 'Presión delantera (psi)', type: 'number', step: 0.5, required: true, value: v?.pressureFront ?? 32 },
-      { name: 'pressureRear', label: 'Presión trasera (psi)', type: 'number', step: 0.5, required: true, value: v?.pressureRear ?? 32 },
+      { name: 'pressureFront', label: 'Presión delantera (psi)', type: 'number', step: 0.5, required: true, value: v?.pressureFront ?? d.pressureFront },
+      { name: 'pressureRear', label: 'Presión trasera (psi)', type: 'number', step: 0.5, required: true, value: v?.pressureRear ?? d.pressureRear },
     ],
-    intro: v ? '' : 'La presión recomendada viene en la etiqueta del marco de la puerta del conductor.',
     onSubmit(values) {
-      if (v) Object.assign(v, values);
-      else {
-        const nv = {
-          id: uid(), ...values, tires: [], services: [],
-          consumables: DEFAULT_CONSUMABLES.map(([name, intervalKm, intervalMonths]) => ({
-            id: uid(), name, intervalKm, intervalMonths, lastDate: '', lastKm: null, notes: '',
-          })),
-        };
-        state.vehicles.push(nv);
-        state.activeVehicleId = nv.id;
-      }
+      if (v) return void Object.assign(v, values);
+      const nv = { id: uid(), tires: [], services: [], consumables: [] };
+      applyIgnisPreset(nv);
+      state.vehicles = [Object.assign(nv, values)];
     },
   });
 }
@@ -343,7 +332,7 @@ function viewResumen(v, today) {
   ].sort((a, b) => (a.level === 'overdue' ? 0 : 1) - (b.level === 'overdue' ? 0 : 1));
   const last = L.latestReading(v);
   const upcoming = items.filter((i) => i.status === 'ok').slice(0, 4);
-  const sub = [v.make, v.model, v.year].filter(Boolean).join(' ');
+  const sub = 'Suzuki Ignis 2020 GLX CVT';
   return `
     <section class="card">
       <div class="row">
@@ -445,23 +434,39 @@ function viewConsumibles(v, today) {
     </section>`;
 }
 
-function viewVehiculo(v) {
+const refMark = (ref) => (ref ? ' <span class="ref" title="Dato de referencia: confírmalo">*</span>' : '');
+
+function viewFicha(v) {
   return `
     <section class="card">
-      <header><h2>Vehículos</h2><button class="btn primary" data-action="veh-add">Agregar vehículo</button></header>
-      <ul class="list">${state.vehicles.map((x) => `<li>
-        <div class="item"><b>${esc(x.name)}</b>
-          <span class="muted">${esc([x.make, x.model, x.year].filter(Boolean).join(' '))}${x.plate ? ` · ${esc(x.plate)}` : ''} · ${km(x.odometer)}</span></div>
-        <div class="side"><div class="actions">
-          <button class="btn small" data-action="veh-edit" data-id="${x.id}">Editar</button>
-          <button class="btn small danger" data-action="veh-del" data-id="${x.id}">Eliminar</button></div></div></li>`).join('')}</ul>
+      <header><h2>Suzuki Ignis 2020 GLX CVT</h2><button class="btn small" data-action="veh-edit">Mis datos</button></header>
+      <p class="muted">${esc(v.name)}${v.plate ? ` · ${esc(v.plate)}` : ''} · ${km(v.odometer)}</p>
+      ${IGNIS.SPECS.map(([group, rows]) => `<h3>${group}</h3><table class="specs"><tbody>
+        ${rows.map(([k, val, ref]) => `<tr><th scope="row">${k}</th><td>${val}${refMark(ref)}</td></tr>`).join('')}</tbody></table>`).join('')}
     </section>
     <section class="card">
-      <header><h2>Respaldo de datos</h2></header>
+      <header><h2>Líquidos y refacciones</h2></header>
+      <table class="specs"><tbody>
+        ${IGNIS.FLUIDS.map(([k, val, ref]) => `<tr><th scope="row">${k}</th><td>${val}${refMark(ref)}</td></tr>`).join('')}</tbody></table>
+      <p class="muted"><span class="ref">*</span> Dato de referencia tomado de catálogos de refacciones o manuales de otros mercados.
+        Confírmalo con el manual del propietario, la etiqueta de la puerta o tu agencia antes de comprar o rellenar.</p>
+    </section>
+    <section class="card">
+      <header><h2>Bajo el cofre</h2></header>
+      <p class="muted">El frente del auto queda abajo en la foto y el parabrisas arriba.</p>
+      <div class="bay"><img src="motor.jpg" alt="Motor del Suzuki Ignis con siete puntos de revisión numerados" loading="lazy" width="1280" height="720">
+        ${IGNIS.ENGINE_BAY.map((p, i) => `<span class="pin" style="left:${p.x}%;top:${p.y}%" aria-hidden="true">${i + 1}</span>`).join('')}</div>
+      <ol class="list guide">${IGNIS.ENGINE_BAY.map((p, i) => `<li><span class="pin static" aria-hidden="true">${i + 1}</span>
+        <div class="item"><b>${p.title}</b><span class="muted">${p.where}</span><span>${p.text}</span></div></li>`).join('')}</ol>
+      <p class="muted">${IGNIS.ENGINE_BAY_NOTE}</p>
+    </section>
+    <section class="card">
+      <header><h2>Datos y respaldo</h2></header>
       <p class="muted">Los datos se guardan sólo en este navegador. Exporta un respaldo para no perderlos o para pasarlos a otro dispositivo.</p>
       <div class="actions">
         <button class="btn" data-action="export">Exportar respaldo</button>
         <button class="btn" data-action="import">Importar respaldo</button>
+        <button class="btn" data-action="preset">Restablecer valores del Ignis</button>
       </div>
     </section>`;
 }
@@ -473,32 +478,27 @@ const TABS = [
   ['llantas', 'Llantas', ICON('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/>'), viewLlantas],
   ['bitacora', 'Bitácora', ICON('<path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM9 8h6M9 12h6M9 16h4"/>'), viewBitacora],
   ['consumibles', 'Consumibles', ICON('<path d="M12 3s6 6.500 6 11a6 6 0 0 1-12 0c0-4.500 6-11 6-11z"/>'), viewConsumibles],
-  ['vehiculo', 'Vehículo', ICON('<path d="M4 16l1.500-6A3 3 0 0 1 8.400 8h7.200a3 3 0 0 1 2.900 2l1.500 6v3h-3v-2H7v2H4z"/><path d="M7.500 14h.01M16.500 14h.01"/>'), viewVehiculo],
+  ['ficha', 'Ficha', ICON('<path d="M4 16l1.500-6A3 3 0 0 1 8.400 8h7.200a3 3 0 0 1 2.900 2l1.500 6v3h-3v-2H7v2H4z"/><path d="M7.500 14h.01M16.500 14h.01"/>'), viewFicha],
 ];
 const currentTab = () => TABS.find((t) => t[0] === location.hash.slice(1)) || TABS[0];
 
 const app = document.getElementById('app');
 const nav = document.getElementById('nav');
-const picker = document.getElementById('vehicle-picker');
 
 function render() {
   const v = vehicle();
   const today = L.todayISO();
   const warn = saveFailed ? '<p class="error">No se pudo guardar en este navegador (almacenamiento bloqueado o lleno). Exporta un respaldo.</p>' : '';
   if (!v) {
-    picker.innerHTML = '';
     nav.innerHTML = '';
     app.innerHTML = `${warn}<section class="card">
-      <h2>Bienvenido</h2>
-      <p>Lleva el control de la presión de llantas, la bitácora de servicios y los consumibles de tu automóvil.</p>
-      <div class="actions"><button class="btn primary" data-action="veh-add">Agregar mi vehículo</button>
+      <h2>Suzuki Ignis 2020 GLX CVT</h2>
+      <p>Presión de llantas, bitácora de servicios y consumibles, ya configurados con los datos de tu Ignis. Sólo falta el kilometraje actual.</p>
+      <div class="actions"><button class="btn primary" data-action="veh-add">Empezar</button>
         <button class="btn" data-action="import">Importar respaldo</button></div>
     </section>`;
     return;
   }
-  picker.innerHTML = state.vehicles.length > 1
-    ? `<select aria-label="Vehículo activo">${state.vehicles.map((x) => `<option value="${x.id}" ${x === v ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`
-    : `<span class="muted">${esc(v.name)}</span>`;
   const tab = currentTab();
   const pending = L.tireAlerts(v, today).length + L.dueItems(v, today).filter((i) => i.status === 'overdue' || i.status === 'soon').length;
   nav.innerHTML = TABS.map(([id, label, icon]) => `<a href="#${id}" ${id === tab[0] ? 'aria-current="page"' : ''}>${icon}${label}
@@ -523,7 +523,7 @@ function importData() {
       data = normalize(JSON.parse(await file.text()));
     } catch { /* se informa abajo */ }
     if (!data) return alert('El archivo no es un respaldo válido.');
-    if (state.vehicles.length && !confirm('Importar reemplazará todos los datos actuales. ¿Continuar?')) return;
+    if (vehicle() && !confirm('Importar reemplazará todos los datos actuales. ¿Continuar?')) return;
     state = data;
     save();
     render();
@@ -533,12 +533,10 @@ function importData() {
 
 const ACTIONS = {
   'veh-add': () => vehicleForm(),
-  'veh-edit': (v, id) => vehicleForm(state.vehicles.find((x) => x.id === id)),
-  'veh-del': (v, id) => {
-    const x = state.vehicles.find((y) => y.id === id);
-    if (!x || !confirm(`¿Eliminar "${x.name}" con todo su historial? No se puede deshacer.`)) return;
-    state.vehicles = state.vehicles.filter((y) => y !== x);
-    if (state.activeVehicleId === id) state.activeVehicleId = state.vehicles[0]?.id ?? null;
+  'veh-edit': (v) => vehicleForm(v),
+  preset: (v) => {
+    if (!confirm('Se restablecerán la presión recomendada y los intervalos de los consumibles a los valores del Ignis. Tu historial y las fechas de los últimos cambios se conservan. ¿Continuar?')) return;
+    applyIgnisPreset(v);
     save();
     render();
   },
@@ -560,11 +558,6 @@ const ACTIONS = {
 app.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-action]');
   if (btn) ACTIONS[btn.dataset.action]?.(vehicle(), btn.dataset.id);
-});
-picker.addEventListener('change', (e) => {
-  state.activeVehicleId = e.target.value;
-  save();
-  render();
 });
 addEventListener('hashchange', () => {
   render();

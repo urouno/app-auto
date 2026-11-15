@@ -1,7 +1,7 @@
 {
-  "name": "Auto Mantenimiento",
-  "short_name": "Auto",
-  "description": "Presión de llantas, bitácora de servicios y consumibles de tu automóvil.",
+  "name": "Mi Ignis · Mantenimiento",
+  "short_name": "Mi Ignis",
+  "description": "Presión de llantas, bitácora de servicios y consumibles del Suzuki Ignis 2020 GLX CVT.",
   "lang": "es",
   "start_url": "./",
   "scope": "./",
